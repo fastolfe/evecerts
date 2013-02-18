@@ -1,17 +1,16 @@
 import json
 import os
 import random
-import re
 import string
 
 from google.appengine.api import app_identity, memcache, users
-from google.appengine.ext import db
 import jinja2
 import webapp2
 
 import evelink
 from evelink import appengine as elink_appengine
 import models
+import user_data
 
 def random_string(N):
   choices = string.ascii_letters + string.digits
@@ -20,11 +19,13 @@ def random_string(N):
 jinja_environment = jinja2.Environment(
   loader=jinja2.FileSystemLoader(os.path.dirname(__file__)))
 
+
 class HomeHandler(webapp2.RequestHandler):
 
   def get(self):
     template = jinja_environment.get_template('index.html')
     self.response.out.write(template.render({}))
+
 
 class APIKeysHandler(webapp2.RequestHandler):
 
@@ -56,7 +57,7 @@ class APIKeysHandler(webapp2.RequestHandler):
 
     if not page:
       keys = []
-      for key in models.APIKey.all().filter("owner =", user):
+      for key in user_data.get_keys_for_user(user):
         key_data = {
           'id': key.key_id,
           'vcode': key.vcode,
@@ -71,116 +72,52 @@ class APIKeysHandler(webapp2.RequestHandler):
     self.response.out.write(page)
 
   def add_key(self):
-    key_id, vcode = self.validate_key()
-
-    if not (key_id and vcode):
-      self.error(500)
-      self.response.out.write("Invalid key ID or verification code."
-        " Please press Back and enter a valid set of API credentials.")
-      return
-
     user = users.get_current_user()
+    key_id, vcode = self.request.get('id'), self.request.get('vcode')
+    key_id = user_data.validate_key(key_id)
 
-    user_keys = models.APIKey.all().filter("owner =", user)
-    for key in user_keys:
-      if key.key_id == key_id and key.vcode == vcode:
-        return self.redirect("/apikeys")
+    if not (key_id and user_data.validate_vcode(vcode)):
+      self.error(500)
+      return self.response.out.write('key ID or vcode are invalid')
 
-    new_key = models.APIKey(key_id=key_id, vcode=vcode, owner=user)
-    new_key.put()
+    if not user_data.add_key_for_user(user, key_id, vcode):
+      # Key already existed
+      return self.redirect("/apikeys")
+
     memcache.delete(self.KEY_LIST_CACHE_KEY_FORMAT % user.user_id())
-
     self.redirect("/apikeys?action=refresh&id=%d" % key_id)
 
   def remove_key(self):
     user = users.get_current_user()
 
-    try:
-      key_id = int(self.request.get('id'))
-    except (ValueError, TypeError):
+    key_id = user_data.validate_key(self.request.get('id'))
+    if not key_id:
       self.error(500)
       return self.response.out.write("Invalid key id.")
 
-    user_keys = models.APIKey.all().filter("owner = ", user)
-    existing_key = user_keys.filter("key_id =", key_id).get()
-    if existing_key:
-      existing_key.delete()
+    user_data.remove_key_for_user(user, key_id)
 
     memcache.delete(self.KEY_LIST_CACHE_KEY_FORMAT % user.user_id())
-
     self.redirect("/apikeys")
-
-  def validate_key(self):
-    key_id, vcode = self.request.get('id'), self.request.get('vcode')
-    try:
-      key_id = int(self.request.get('id'))
-      if not key_id > 0:
-        raise ValueError()
-    except (ValueError, TypeError):
-      return None, None
-
-    if not vcode or not re.match(r'^[a-zA-Z0-9]{64}$', vcode):
-      return None, None
-
-    return key_id, vcode
 
   def refresh_key(self):
     user = users.get_current_user()
-
-    try:
-      key_id = int(self.request.get('id'))
-    except (ValueError, TypeError):
+    key_id = user_data.validate_key(self.request.get('id'))
+    if not key_id:
       self.error(500)
       return self.response.out.write("Invalid key id.")
 
-    user_keys = models.APIKey.all().filter("owner =", user)
-    existing_key = user_keys.filter("key_id = ", key_id).get()
-
-    if not existing_key:
-      self.error(500)
-      return self.response.out.write("Unable to refresh key.")
-
     try:
-      self.refresh_characters(user, existing_key)
-    except evelink.api.APIError:
+      if not user_data.refresh_key_for_user(user, key_id):
+        self.error(500)
+        return self.response.out.write("Key ID was not known")
+    except user_data.ApiKeyError as e:
       self.error(500)
-      return self.response.write("API Error.")
+      return self.response.write('Unable to refresh key: %s' % e.message)
 
     memcache.delete(self.KEY_LIST_CACHE_KEY_FORMAT % user.user_id())
-
     self.redirect("/apikeys")
 
-  def refresh_characters(self, user, key):
-    elink_api = elink_appengine.AppEngineAPI(api_key=(key.key_id, key.vcode))
-    elink_account = evelink.account.Account(api=elink_api)
-    info = elink_account.key_info()
-
-    if not (info['access_mask'] & 8):
-      self.error(500)
-      return self.response.out.write(
-        "This key does not have Character Sheet access, which is required.")
-
-    retrieved_characters = info['characters']
-    existing_characters = list(key.character_set)
-
-    old_ids = set(c.char_id for c in existing_characters)
-    new_ids = set(retrieved_characters)
-
-    ids_to_delete = old_ids - new_ids
-    ids_to_add = new_ids - old_ids
-
-    models_to_add = []
-    for char_id in ids_to_add:
-      name = retrieved_characters[char_id]['name']
-      model = models.Character(char_id=char_id, name=name, api_key=key)
-      models_to_add.append(model)
-    if models_to_add:
-      db.put(models_to_add)
-
-    models_to_delete = [c for c in existing_characters
-      if c.char_id in ids_to_delete]
-    if models_to_delete:
-      db.delete(models_to_delete)
 
 class SkillTreeHandler(webapp2.RequestHandler):
 
