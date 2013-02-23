@@ -1,4 +1,3 @@
-import json
 import os
 import random
 import string
@@ -10,6 +9,7 @@ import webapp2
 import evelink
 from evelink import appengine as elink_appengine
 import models
+import skill_data
 import user_data
 
 def random_string(N):
@@ -119,51 +119,18 @@ class APIKeysHandler(webapp2.RequestHandler):
     self.redirect("/apikeys")
 
 
+
 class SkillTreeHandler(webapp2.RequestHandler):
-
-  SKILL_TREE_CACHE_KEY = 'skill-tree-1'
-  SKILL_NAMES_CACHE_KEY = 'skill-names-1'
-
   def get(self):
-    skilltree = models.SkillTree.all().get()
-
-    elink_api = elink_appengine.AppEngineAPI(deadline=20)
-    elink_eve = evelink.eve.EVE(api=elink_api)
-    treedata = elink_eve.skill_tree()
-    SkillTreeHandler.cache_skill_data(treedata)
-
-    if skilltree:
-      skilltree.json_data = json.dumps(treedata)
-    else:
-      skilltree = models.SkillTree(json_data = json.dumps(treedata))
-    skilltree.put()
+    try:
+      treedata = skill_data.refresh_skill_tree()
+    except skill_data.SkillTreeError as e:
+      self.error(500)
+      return self.response.out.write(e.message)
 
     self.response.out.write("Successfully retrieved skills for %d groups." %
       len(treedata))
 
-  @classmethod
-  def cache_skill_data(cls, treedata):
-    memcache.set(cls.SKILL_TREE_CACHE_KEY, treedata)
-    memcache.delete(CertificationsHandler.SKILL_GROUPS_CACHE_KEY)
-    cls.get_skill_data()
-
-  @classmethod
-  def get_skill_data(cls):
-    treedata = memcache.get(cls.SKILL_TREE_CACHE_KEY)
-    if not treedata:
-      skilltree = models.SkillTree.all().get()
-      treedata = json.loads(skilltree.json_data)
-      memcache.set(cls.SKILL_TREE_CACHE_KEY, treedata)
-
-    skill_names = memcache.get(cls.SKILL_NAMES_CACHE_KEY)
-    if not skill_names:
-      skill_names = {}
-      for skillgroup in treedata.itervalues():
-        for skill in skillgroup['skills'].itervalues():
-          skill_names[skill['id']] = skill['name']
-      memcache.set(cls.SKILL_NAMES_CACHE_KEY, skill_names)
-
-    return treedata, skill_names
 
 class PublicCertificationsHandler(webapp2.RequestHandler):
   CERT_PUBLIC_LIST_CACHE_KEY = "cert-public-list"
@@ -288,7 +255,7 @@ class CertificationsHandler(webapp2.RequestHandler):
     if not cert or cert.owner != user:
       return self.error(403)
 
-    skill_tree, skill_names = SkillTreeHandler.get_skill_data()
+    skill_tree, skill_names = skill_data.get_skill_data()
 
     mc_key = self.CERT_SKILLS_CACHE_KEY_FORMAT % cert_id
     skills = memcache.get(mc_key)
@@ -338,7 +305,7 @@ class CertificationsHandler(webapp2.RequestHandler):
     if not cert or cert.owner != user:
       return self.error(403)
 
-    skill_tree, skill_names = SkillTreeHandler.get_skill_data()
+    skill_tree, skill_names = skill_data.get_skill_data()
 
     if skill_id not in skill_names:
       return self.error(500)
@@ -459,7 +426,7 @@ class CertificationHandler(webapp2.RequestHandler):
     else:
       characters = []
 
-    skill_tree, skill_names = SkillTreeHandler.get_skill_data()
+    skill_tree, skill_names = skill_data.get_skill_data()
 
     skills = []
     for skill in cert.required_skills:
