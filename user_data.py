@@ -120,3 +120,22 @@ def refresh_characters(key):
     if c.char_id in ids_to_delete]
   if models_to_delete:
     db.delete(models_to_delete)
+
+def get_characters_for_user(user):
+  characters = []
+  keys = models.APIKey.all().filter("owner =", user)
+  for key in keys:
+    characters.extend(key.character_set)
+  characters.sort(key=lambda c:c.name)
+  return characters
+
+def find_character_by_id(char_id, characters):
+  for char in characters:
+    if char.char_id == char_id:
+      return char
+
+def get_character_sheet(character):
+  key = character.api_key
+  elink_api = elink_appengine.AppEngineAPI(api_key=(key.key_id, key.vcode))
+  elink_char = evelink.char.Char(character.char_id, api=elink_api)
+  return elink_char.character_sheet()

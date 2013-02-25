@@ -66,3 +66,22 @@ def get_skill_data():
     memcache.set(SKILL_NAMES_CACHE_KEY, skill_names)
 
   return treedata, skill_names
+
+
+def get_skill_groups(skill_tree):
+  """Retrieves the skill tree, as a dict keyed on group name."""
+  skillgroups = memcache.get(SKILL_GROUPS_CACHE_KEY)
+  if not skillgroups:
+    skillgroups = []
+    for group in skill_tree.itervalues():
+      s = [s for s in group['skills'].itervalues() if s['published']]
+      if not s:
+        continue
+      skillgroup = {
+        'name': group['name'],
+        'skills': sorted(s, key=lambda x: x['name'])
+      }
+      skillgroups.append(skillgroup)
+    skillgroups.sort(key=lambda x: x['name'])
+    memcache.set(SKILL_GROUPS_CACHE_KEY, skillgroups)
+  return skillgroups
