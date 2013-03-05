@@ -65,12 +65,13 @@ class APIKeysHandler(webapp2.RequestHandler):
 
   def add_key(self):
     user = users.get_current_user()
-    key_id, vcode = self.request.get('id'), self.request.get('vcode')
-    key_id = user_data.validate_key(key_id)
+    key_id = user_data.validate_key(self.request.get('id'))
+    vcode = user_data.validate_vcode(self.request.get('vcode'))
 
-    if not (key_id and user_data.validate_vcode(vcode)):
+    if not (key_id and vcode):
       self.error(500)
-      return self.response.out.write('key ID or vcode are invalid')
+      return self.response.out.write("Invalid key ID or verification code."
+          " Please press Back and enter a valid set of API credentials.")
 
     if not user_data.add_key_for_user(user, key_id, vcode):
       # Key already existed
@@ -354,13 +355,13 @@ class CertificationHandler(webapp2.RequestHandler):
     char_id = self.request.get('character')
     if char_id:
       char_id = int(char_id)
-      self.add_cert_progress(data, char_id, cert, characters)
+      self.show_cert_progress(data, char_id, cert, characters)
 
     template = jinja_environment.get_template("view_cert.html")
     page = template.render(data)
     self.response.out.write(page)
 
-  def add_cert_progress(self, data, char_id, cert, characters):
+  def show_cert_progress(self, data, char_id, cert, characters):
     character = user_data.find_character_by_id(char_id, characters)
     if character is None:
       return self.redirect("/cert?id=%d" % cert.key().id())

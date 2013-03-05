@@ -38,17 +38,10 @@ def certs_to_dicts(certs):
     }
 
 
-class CertError(Exception):
-  pass
-
-class CertNameInvalid(CertError):
-  pass
-
-class PermissionDeniedError(CertError):
-  pass
-
-class CertNotFoundError(CertError):
-  pass
+class CertError(Exception): pass
+class CertNameInvalid(CertError): pass
+class PermissionDeniedError(CertError): pass
+class CertNotFoundError(CertError): pass
 
 
 def create_cert(user, name):
@@ -111,12 +104,8 @@ def get_cert_skills_dict(cert, skill_names):
   return skills
 
 
-class SkillNotFoundError(CertError):
-  pass
-
-
-class InvalidRankError(CertError):
-  pass
+class SkillNotFoundError(CertError): pass
+class InvalidRankError(CertError): pass
 
 
 def add_skill(owner, cert_id, skill_id, rank):
@@ -173,10 +162,10 @@ def reset_link(owner, cert_id):
   cert.put()
 
 
-SKILL_MISSING = 0
-SKILL_UNTRAINED = 1
-SKILL_INSUFFICIENT = 2
-SKILL_SUFFICIENT = 3
+SKILL_MISSING = 'SKILL_MISSING'
+SKILL_UNTRAINED = 'SKILL_UNTRAINED'
+SKILL_INSUFFICIENT = 'SKILL_INSUFFICIENT'
+SKILL_SUFFICIENT = 'SKILL_SUFFICIENT'
 
 
 def get_cert_progress(charsheet, cert):
