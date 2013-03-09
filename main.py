@@ -106,7 +106,7 @@ class APIKeysHandler(webapp2.RequestHandler):
         return self.response.out.write("Key ID was not known")
     except user_data.ApiKeyError as e:
       self.error(500)
-      return self.response.write('Unable to refresh key: %s' % e.message)
+      return self.response.out.write('API Error.')
 
     memcache.delete(self.KEY_LIST_CACHE_KEY_FORMAT % user.user_id())
     self.redirect("/apikeys")
